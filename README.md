@@ -11,6 +11,7 @@ A cross-chain payment platform built on the Stacks blockchain that enables secur
 - Batch payment processing
 - Automatic batch state management
 - Atomic batch operations
+- Input validation for payments
 
 ## Technical Details
 The smart contract implements:
@@ -20,8 +21,10 @@ The smart contract implements:
 - Multi-currency support
 - Dispute resolution mechanism
 - Payment batching system
-- Batch state tracking
+- Batch state tracking 
 - Batch completion verification
+- Payment amount validation
+- Recipient address validation
 
 ## Getting Started
 1. Clone the repository
@@ -29,10 +32,10 @@ The smart contract implements:
 3. Run tests using Clarinet
 4. Deploy using Stacks CLI
 
-## Payment Batching
-The payment batching system allows:
-- Grouping multiple payments into a single batch
-- Processing multiple payments atomically
-- Automatic batch state updates
-- Tracking completion status of batched payments
-- Efficient bulk payment processing
+## Payment Validation
+The contract now includes enhanced payment validation:
+- Ensures payment amounts are greater than 0
+- Prevents self-payments (sender cannot be recipient)
+- Validates payment parameters before processing
+
+[Rest of README remains unchanged]
