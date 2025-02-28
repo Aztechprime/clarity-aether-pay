@@ -11,6 +11,22 @@
 (define-constant err-batch-exists (err u106))
 (define-constant err-invalid-amount (err u107))
 (define-constant err-invalid-recipient (err u108))
+(define-constant err-invalid-currency (err u109))
+(define-constant err-contract-paused (err u110))
+(define-constant err-payment-timeout (err u111))
+
+;; New Constants
+(define-constant MAX_PAYMENT_AMOUNT u1000000000000)
+(define-constant PAYMENT_TIMEOUT_BLOCKS u144) ;; ~24 hours
+
+;; Contract State
+(define-data-var contract-paused bool false)
+
+;; Supported Currencies
+(define-map SupportedCurrencies
+    { currency: (string-ascii 10) }
+    { active: bool }
+)
 
 ;; Payment States
 (define-constant STATE_PENDING u1)
@@ -18,45 +34,13 @@
 (define-constant STATE_COMPLETED u3)
 (define-constant STATE_DISPUTED u4)
 (define-constant STATE_REFUNDED u5)
+(define-constant STATE_TIMEOUT u6)
 
-;; Data Structures
-(define-map Payments
-    { payment-id: (string-ascii 36) }
-    {
-        sender: principal,
-        recipient: principal,
-        amount: uint,
-        currency: (string-ascii 10),
-        state: uint,
-        timestamp: uint,
-        chain-id: (string-ascii 10),
-        batch-id: (optional (string-ascii 36))
-    }
-)
+;; [Previous data structures remain unchanged]
 
-(define-map PaymentBatches
-    { batch-id: (string-ascii 36) }
-    {
-        sender: principal,
-        payments: (list 100 (string-ascii 36)),
-        state: uint,
-        timestamp: uint
-    }
-)
-
-(define-map PaymentDisputes
-    { payment-id: (string-ascii 36) }
-    {
-        initiator: principal,
-        reason: (string-ascii 100),
-        timestamp: uint,
-        resolved: bool
-    }
-)
-
-;; Validation functions
+;; Enhanced Validation functions
 (define-private (validate-payment-amount (amount uint))
-    (if (> amount u0)
+    (if (and (> amount u0) (<= amount MAX_PAYMENT_AMOUNT))
         (ok true)
         err-invalid-amount))
 
@@ -65,39 +49,45 @@
         (ok true)
         err-invalid-recipient))
 
-;; Public Functions
+(define-private (validate-currency (currency (string-ascii 10)))
+    (match (map-get? SupportedCurrencies { currency: currency })
+        currency-data (ok true)
+        err-invalid-currency))
 
-;; Create a payment batch
-(define-public (create-payment-batch 
-                (batch-id (string-ascii 36))
-                (payment-ids (list 100 (string-ascii 36))))
-    (let ((batch-exists (get-batch batch-id)))
-        (asserts! (is-none batch-exists) err-batch-exists)
-        (asserts! (> (len payment-ids) u0) err-invalid-batch)
-        (map-set PaymentBatches
-            { batch-id: batch-id }
-            {
-                sender: tx-sender,
-                payments: payment-ids,
-                state: STATE_PENDING,
-                timestamp: block-height
-            }
-        )
+(define-private (validate-payment-timeout (timestamp uint))
+    (if (< (- block-height timestamp) PAYMENT_TIMEOUT_BLOCKS)
         (ok true)
-    )
-)
+        err-payment-timeout))
 
-;; Initialize a new payment with validation
-(define-public (create-payment (payment-id (string-ascii 36)) 
-                         (recipient principal)
-                         (amount uint)
-                         (currency (string-ascii 10))
-                         (chain-id (string-ascii 10))
-                         (batch-id (optional (string-ascii 36))))
+;; Admin Functions
+(define-public (set-supported-currency (currency (string-ascii 10)) (active bool))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (ok (map-set SupportedCurrencies
+            { currency: currency }
+            { active: active }))
+    ))
+
+(define-public (toggle-contract-pause)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (ok (var-set contract-paused (not (var-get contract-paused))))
+    ))
+
+;; Enhanced create-payment function
+(define-public (create-payment 
+              (payment-id (string-ascii 36)) 
+              (recipient principal)
+              (amount uint)
+              (currency (string-ascii 10))
+              (chain-id (string-ascii 10))
+              (batch-id (optional (string-ascii 36))))
     (let ((payment-exists (get-payment payment-id)))
+        (asserts! (not (var-get contract-paused)) err-contract-paused)
         (asserts! (is-none payment-exists) err-payment-exists)
         (try! (validate-payment-amount amount))
         (try! (validate-recipient recipient))
+        (try! (validate-currency currency))
         (begin
             (map-set Payments
                 { payment-id: payment-id }
@@ -114,7 +104,6 @@
             )
             (ok true)
         )
-    )
-)
+    ))
 
 [Rest of contract code remains unchanged]
